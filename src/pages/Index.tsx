@@ -41,9 +41,17 @@ export default function Index() {
     setViewedMeteorites(newViewed);
 
     unlockAchievement('first_meteorite');
-    if (m.id === 'mars-meteorite') unlockAchievement('mars_explorer');
-    if (['chelyabinsk', 'sikhote-alin'].every(id => newViewed.includes(id))) {
+    if (m.id === 'mars-meteorite' || m.id === 'nwa7034') unlockAchievement('mars_explorer');
+    if (m.id === 'tunguska') unlockAchievement('tunguska_secret');
+    if (['chelyabinsk', 'sikhote-alin', 'tunguska'].every(id => newViewed.includes(id))) {
       unlockAchievement('russia_expert');
+    }
+    if (['allende', 'murchison', 'tagish-lake'].every(id => newViewed.includes(id))) {
+      unlockAchievement('organic_hunter');
+    }
+    const ironIds = METEORITES.filter(x => x.type === 'iron').map(x => x.id);
+    if (ironIds.filter(id => newViewed.includes(id)).length >= 4) {
+      unlockAchievement('iron_collector');
     }
     if (newViewed.length === METEORITES.length) unlockAchievement('all_meteorites');
   };
