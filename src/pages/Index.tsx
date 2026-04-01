@@ -633,6 +633,28 @@ export default function Index() {
           </div>
         )}
       </main>
+
+      {/* Support Footer */}
+      <footer className="relative z-10 mt-6 pb-6 px-4">
+        <div className="max-w-2xl mx-auto glass-card rounded-2xl p-5 flex items-center gap-4 border border-white/10">
+          <div className="w-10 h-10 rounded-full bg-cosmos-orange/20 flex items-center justify-center flex-shrink-0">
+            <Icon name="Headphones" size={20} className="text-cosmos-orange" />
+          </div>
+          <div className="flex-1">
+            <div className="font-oswald text-base text-foreground">Поддержка разработчика</div>
+            <div className="text-sm text-muted-foreground">Есть вопросы? Пишите в Telegram</div>
+          </div>
+          <a
+            href="https://t.me/Dashadjjjj"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 bg-cosmos-orange hover:bg-cosmos-orange/80 transition-colors text-black font-oswald text-sm px-4 py-2 rounded-xl"
+          >
+            <Icon name="Send" size={15} />
+            @Dashadjjjj
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }
