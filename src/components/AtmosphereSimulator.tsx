@@ -20,6 +20,15 @@ interface SimResult {
   fragments: number;
 }
 
+// Particle for ejecta / debris
+interface Particle {
+  x: number; y: number;
+  vx: number; vy: number;
+  life: number; maxLife: number;
+  r: number;
+  color: string;
+}
+
 function simulate(params: SimParams): SimResult {
   const { angle, velocity, mass, composition } = params;
   const angleRad = (angle * Math.PI) / 180;
@@ -31,7 +40,6 @@ function simulate(params: SimParams): SimResult {
   const burnHeight = Math.max(5, 85 - angle * 0.6 - (mass / 800) * 4);
   const finalVelocity = survived ? velocity * (0.15 + 0.2 * Math.cos(angleRad)) : velocity * 0.05;
 
-  // Crater & blast based on energy
   const craterDiameter = survived ? Math.pow(energyMt * 1000, 0.294) * 0.8 : 0;
   const blastRadius = Math.pow(energyMt, 0.333) * 4.5;
   const fireballRadius = Math.pow(energyMt, 0.333) * 1.8;
@@ -62,6 +70,12 @@ const TARGETS = [
   { id: 'mountain', label: '⛰️ Горы', x: 0.62, emoji: '⛰️' },
 ];
 
+// Pseudo-random seeded by index
+function seededRand(seed: number) {
+  const x = Math.sin(seed + 1) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 export default function AtmosphereSimulator({ onAchievement }: { onAchievement: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mapCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,6 +83,9 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
   const phaseRef = useRef<'flight' | 'impact' | 'done'>('done');
   const progressRef = useRef(0);
   const impactProgressRef = useRef(0);
+  const particlesRef = useRef<Particle[]>([]);
+  const smokeRef = useRef<Particle[]>([]);
+  const debrisRef = useRef<Particle[]>([]);
 
   const [params, setParams] = useState<SimParams>({
     angle: 35,
@@ -79,7 +96,7 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
   const [result, setResult] = useState<SimResult | null>(null);
   const [running, setRunning] = useState(false);
   const [hasChanged, setHasChanged] = useState(false);
-  const [targetX, setTargetX] = useState(0.5); // 0..1 on canvas
+  const [targetX, setTargetX] = useState(0.5);
   const [selectedTarget, setSelectedTarget] = useState('city');
   const [impactDone, setImpactDone] = useState(false);
 
@@ -105,7 +122,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
     const W = canvas.width;
     const H = canvas.height;
 
-    // Base terrain
     const terrain = ctx.createLinearGradient(0, 0, W, 0);
     terrain.addColorStop(0, '#1a3a0a');
     terrain.addColorStop(0.2, '#2a5a18');
@@ -119,7 +135,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
     ctx.fillStyle = terrain;
     ctx.fillRect(0, 0, W, H);
 
-    // City silhouette
     ctx.fillStyle = 'rgba(200,200,255,0.15)';
     const cx = W * 0.5;
     [0, -20, 20, -10, 15, -25, 8].forEach((ox, i) => {
@@ -127,7 +142,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.fillRect(cx + ox - 4, H - bh, 8, bh);
     });
 
-    // Grid overlay
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
     for (let x = 0; x < W; x += 40) {
@@ -137,11 +151,9 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
     }
 
-    // Target marker
     const tx = targetX * W;
     const ty = H / 2;
 
-    // Crosshair
     ctx.strokeStyle = 'rgba(255,60,0,0.9)';
     ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(tx - 16, ty); ctx.lineTo(tx + 16, ty); ctx.stroke();
@@ -164,9 +176,8 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
 
     const tx = targetX * W;
     const ty = H / 2;
-    const scale = W / 500; // 500km viewport
+    const scale = W / 500;
 
-    // Ejecta / shockwave ring expanding
     if (prog > 0.1) {
       const waveR = Math.min(prog * 2, 1) * res.blastRadius * scale * 8;
       const wave = ctx.createRadialGradient(tx, ty, 0, tx, ty, waveR);
@@ -178,7 +189,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.beginPath(); ctx.arc(tx, ty, waveR, 0, Math.PI * 2); ctx.fill();
     }
 
-    // Fireball
     if (prog > 0.05 && res.survived) {
       const fbR = Math.min(prog * 3, 1) * res.fireballRadius * scale * 8;
       const fb = ctx.createRadialGradient(tx, ty, 0, tx, ty, fbR);
@@ -189,7 +199,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.beginPath(); ctx.arc(tx, ty, fbR, 0, Math.PI * 2); ctx.fill();
     }
 
-    // Crater (ground impact)
     if (prog > 0.3 && res.survived && res.craterDiameter > 0) {
       const craterR = Math.min((prog - 0.3) / 0.7, 1) * (res.craterDiameter / 2) * scale * 10;
       ctx.beginPath();
@@ -200,7 +209,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Rim
       ctx.beginPath();
       ctx.arc(tx, ty, craterR * 1.15, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(150,100,50,0.5)';
@@ -208,7 +216,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.stroke();
     }
 
-    // Blast radius label
     if (prog > 0.6) {
       const labelR = res.blastRadius * scale * 8;
       ctx.strokeStyle = 'rgba(255,100,0,0.5)';
@@ -222,7 +229,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       ctx.fillText(`⚡ ${res.blastRadius} км`, tx + labelR + 4, ty - 4);
     }
 
-    // Fragments scatter
     if (prog > 0.5 && res.fragments > 1) {
       for (let f = 0; f < Math.min(res.fragments, 8); f++) {
         const angle = (f / res.fragments) * Math.PI * 2;
@@ -233,9 +239,6 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
         ctx.arc(fx, fy, 3, 0, Math.PI * 2);
         ctx.fillStyle = '#8B6914';
         ctx.fill();
-        ctx.strokeStyle = 'rgba(255,140,0,0.5)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
       }
     }
   }, [targetX, drawMap]);
@@ -258,65 +261,135 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
     const GROUND_Y = H * 0.72;
     const impactCanvasX = targetX * W;
 
-    // Flight phase: from top-left → impact point on ground
     const startX = W * 0.05;
     const startY = H * 0.02;
 
-    // If survived → goes into ground, else explodes mid-air
     const endX = res.survived ? impactCanvasX : impactCanvasX * 0.8 + W * 0.1;
     const endY = res.survived ? GROUND_Y : H * (res.burnHeight / 130);
 
     phaseRef.current = 'flight';
     progressRef.current = 0;
     impactProgressRef.current = 0;
+    particlesRef.current = [];
+    smokeRef.current = [];
+    debrisRef.current = [];
 
-    const drawScene = () => {
+    // Precompute stars positions
+    const stars: { x: number; y: number; b: number; s: number }[] = [];
+    for (let i = 0; i < 120; i++) {
+      stars.push({
+        x: (i * 137.508 + 17) % W,
+        y: (i * 89.3 + 43) % (H * 0.42),
+        b: 0.2 + seededRand(i) * 0.8,
+        s: seededRand(i + 200) > 0.85 ? 1.5 : 1,
+      });
+    }
+
+    // Ejecta particles pool
+    const spawnEjecta = (ix: number, ip: number) => {
+      if (particlesRef.current.length > 120) return;
+      for (let e = 0; e < 6; e++) {
+        const spAngle = -Math.PI + seededRand(ip * 1000 + e) * Math.PI;
+        const spd = 40 + seededRand(ip * 500 + e + 100) * 120;
+        const r = 1.5 + seededRand(ip * 300 + e) * 3;
+        const rr = Math.floor(120 + seededRand(ip * 100 + e) * 80);
+        const gg = Math.floor(60 + seededRand(ip * 200 + e) * 60);
+        particlesRef.current.push({
+          x: ix, y: GROUND_Y,
+          vx: Math.cos(spAngle) * spd,
+          vy: Math.sin(spAngle) * spd - 60,
+          life: 1, maxLife: 1,
+          r,
+          color: `rgb(${rr},${gg},20)`,
+        });
+      }
+    };
+
+    // Smoke particles
+    const spawnSmoke = (x: number, y: number, ip: number) => {
+      if (smokeRef.current.length > 80) return;
+      for (let s = 0; s < 3; s++) {
+        smokeRef.current.push({
+          x: x + (seededRand(ip * 777 + s) - 0.5) * 14,
+          y: y + (seededRand(ip * 888 + s) - 0.5) * 8,
+          vx: (seededRand(ip * 999 + s) - 0.5) * 12,
+          vy: -(8 + seededRand(ip * 111 + s) * 14),
+          life: 1, maxLife: 1,
+          r: 6 + seededRand(ip * 222 + s) * 12,
+          color: `rgba(180,140,90,`,
+        });
+      }
+    };
+
+    // Debris chunks for ground impact
+    const spawnDebris = (ix: number) => {
+      debrisRef.current = [];
+      for (let d = 0; d < 22; d++) {
+        const ang = -Math.PI * 1.1 + seededRand(d * 13) * Math.PI * 1.2;
+        const spd = 60 + seededRand(d * 17) * 200;
+        debrisRef.current.push({
+          x: ix, y: GROUND_Y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 100,
+          life: 1, maxLife: 1,
+          r: 2 + seededRand(d * 7) * 4,
+          color: `hsl(${20 + seededRand(d * 11) * 30},60%,${25 + seededRand(d * 19) * 25}%)`,
+        });
+      }
+    };
+
+    const drawScene = (dt: number) => {
       ctx.clearRect(0, 0, W, H);
 
       // === BACKGROUND ===
       const bg = ctx.createLinearGradient(0, 0, 0, H);
-      bg.addColorStop(0, '#020810');
-      bg.addColorStop(0.25, '#060d1a');
-      bg.addColorStop(0.5, '#0a1020');
-      bg.addColorStop(0.65, '#1a0c05');
-      bg.addColorStop(0.72, '#0d1608');
-      bg.addColorStop(1, '#071208');
+      bg.addColorStop(0, '#010608');
+      bg.addColorStop(0.18, '#040a12');
+      bg.addColorStop(0.42, '#070d18');
+      bg.addColorStop(0.62, '#100806');
+      bg.addColorStop(0.72, '#0c1508');
+      bg.addColorStop(1, '#07110a');
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, W, H);
 
-      // Stars
-      for (let i = 0; i < 80; i++) {
-        const sx = (i * 137 + 17) % W;
-        const sy = (i * 89 + 43) % (H * 0.45);
-        const brightness = 0.3 + ((i * 31) % 7) * 0.1;
-        ctx.fillStyle = `rgba(255,255,255,${brightness})`;
-        ctx.fillRect(sx, sy, 1, 1);
-      }
+      // Stars with twinkle
+      const t = performance.now() / 1000;
+      stars.forEach(s => {
+        const twinkle = s.b * (0.7 + 0.3 * Math.sin(t * 1.2 + s.x));
+        ctx.globalAlpha = twinkle;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(s.x, s.y, s.s, s.s);
+      });
+      ctx.globalAlpha = 1;
 
       // === ATMOSPHERE LAYERS ===
       const atmoLayers = [
-        { y: 0.02, h: 0.08, label: 'Термосфера  80–700 км', color: 'rgba(80,120,255,0.06)' },
-        { y: 0.10, h: 0.12, label: 'Мезосфера  50–80 км', color: 'rgba(60,100,220,0.09)' },
-        { y: 0.22, h: 0.18, label: 'Стратосфера  12–50 км', color: 'rgba(40,80,180,0.12)' },
-        { y: 0.40, h: 0.30, label: 'Тропосфера  0–12 км', color: 'rgba(30,60,140,0.16)' },
+        { y: 0.02, h: 0.08, label: 'Термосфера  80–700 км', color: 'rgba(80,120,255,0.04)' },
+        { y: 0.10, h: 0.12, label: 'Мезосфера  50–80 км', color: 'rgba(60,100,220,0.07)' },
+        { y: 0.22, h: 0.18, label: 'Стратосфера  12–50 км', color: 'rgba(40,80,180,0.10)' },
+        { y: 0.40, h: 0.30, label: 'Тропосфера  0–12 км', color: 'rgba(30,60,140,0.13)' },
       ];
       atmoLayers.forEach(l => {
         ctx.fillStyle = l.color;
         ctx.fillRect(0, l.y * H, W, l.h * H);
-        ctx.fillStyle = 'rgba(130,170,255,0.35)';
+        // Layer separator line
+        ctx.strokeStyle = 'rgba(80,120,255,0.12)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath(); ctx.moveTo(0, l.y * H); ctx.lineTo(W, l.y * H); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(130,170,255,0.30)';
         ctx.font = '9px Golos Text';
         ctx.fillText(l.label, 6, (l.y + 0.022) * H);
       });
 
       // === TERRAIN ===
-      // Sky glow at horizon
-      const horizonGlow = ctx.createLinearGradient(0, GROUND_Y - 30, 0, GROUND_Y + 10);
+      const horizonGlow = ctx.createLinearGradient(0, GROUND_Y - 40, 0, GROUND_Y + 10);
       horizonGlow.addColorStop(0, 'rgba(30,80,20,0)');
-      horizonGlow.addColorStop(1, 'rgba(20,50,10,0.8)');
+      horizonGlow.addColorStop(1, 'rgba(20,50,10,0.6)');
       ctx.fillStyle = horizonGlow;
-      ctx.fillRect(0, GROUND_Y - 30, W, 40);
+      ctx.fillRect(0, GROUND_Y - 40, W, 50);
 
-      // Ground base
       const groundGrad = ctx.createLinearGradient(0, GROUND_Y, 0, H);
       groundGrad.addColorStop(0, '#1e3a10');
       groundGrad.addColorStop(0.3, '#162e0c');
@@ -327,8 +400,8 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       // Terrain bumps
       ctx.beginPath();
       ctx.moveTo(0, GROUND_Y);
-      for (let x = 0; x <= W; x += 30) {
-        const bump = Math.sin(x * 0.04) * 4 + Math.sin(x * 0.11) * 2;
+      for (let x = 0; x <= W; x += 20) {
+        const bump = Math.sin(x * 0.04) * 4 + Math.sin(x * 0.11) * 2 + Math.sin(x * 0.027) * 6;
         ctx.lineTo(x, GROUND_Y + bump);
       }
       ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
@@ -337,13 +410,13 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
 
       // Target marker on ground
       const tx = impactCanvasX;
-      ctx.strokeStyle = 'rgba(255,60,0,0.6)';
+      ctx.strokeStyle = 'rgba(255,60,0,0.55)';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(tx, GROUND_Y - 20); ctx.lineTo(tx, GROUND_Y + 12); ctx.stroke();
       ctx.setLineDash([]);
       ctx.beginPath(); ctx.arc(tx, GROUND_Y, 8, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,60,0,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,60,0,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
 
       const p = progressRef.current;
       const ip = impactProgressRef.current;
@@ -355,53 +428,161 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
         const curX = startX + (endX - startX) * fp;
         const curY = startY + (endY - startY) * fp;
 
-        // Trail with fading opacity
-        const trailSegments = 25;
+        // Speed factor: accelerates through thin atmosphere, slows in dense troposphere
+        const speedFactor = fp < 0.6 ? 1 : 1 - (fp - 0.6) * 0.6;
+
+        // Atmospheric entry flash (ionization plasma) at ~0.05
+        if (fp > 0.04 && fp < 0.25) {
+          const entryFlash = (fp - 0.04) / 0.21;
+          const flashAlpha = Math.sin(entryFlash * Math.PI) * 0.25;
+          const flashGrad = ctx.createRadialGradient(curX, curY, 0, curX, curY, 60);
+          flashGrad.addColorStop(0, `rgba(160,200,255,${flashAlpha})`);
+          flashGrad.addColorStop(1, 'rgba(80,120,255,0)');
+          ctx.fillStyle = flashGrad;
+          ctx.beginPath(); ctx.arc(curX, curY, 60, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // Wide glowing plasma cone along trajectory
+        if (fp > 0.05) {
+          const coneLen = 80 + fp * 50;
+          const dx = endX - startX;
+          const dy = endY - startY;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          const nx = -dy / len;
+          const ny = dx / len;
+          const tipX = curX - (dx / len) * coneLen;
+          const tipY = curY - (dy / len) * coneLen;
+          const coneW = (6 + fp * 18) * speedFactor;
+          const intensity = Math.min(fp * 2.5, 1);
+
+          const coneGrad = ctx.createLinearGradient(tipX, tipY, curX, curY);
+          coneGrad.addColorStop(0, 'rgba(255,180,50,0)');
+          coneGrad.addColorStop(0.5, `rgba(255,140,20,${0.18 * intensity})`);
+          coneGrad.addColorStop(1, `rgba(255,80,0,${0.5 * intensity})`);
+
+          ctx.beginPath();
+          ctx.moveTo(tipX, tipY);
+          ctx.lineTo(curX + nx * coneW, curY + ny * coneW);
+          ctx.lineTo(curX - nx * coneW, curY - ny * coneW);
+          ctx.closePath();
+          ctx.fillStyle = coneGrad;
+          ctx.fill();
+        }
+
+        // Multi-layer glowing trail
+        const trailSegments = 36;
         for (let seg = trailSegments; seg >= 1; seg--) {
-          const t0 = Math.max(0, fp - seg * 0.035);
-          const t1 = Math.max(0, fp - (seg - 1) * 0.035);
+          const t0 = Math.max(0, fp - seg * 0.028);
+          const t1 = Math.max(0, fp - (seg - 1) * 0.028);
           const x0 = startX + (endX - startX) * t0;
           const y0 = startY + (endY - startY) * t0;
           const x1 = startX + (endX - startX) * t1;
           const y1 = startY + (endY - startY) * t1;
-          const alpha = (1 - seg / trailSegments) * 0.7;
-          const width = 1 + (1 - seg / trailSegments) * 3;
+          const frac = 1 - seg / trailSegments;
+          // Core bright streak
+          const alpha = frac * 0.85;
+          const width = 1 + frac * 4;
+          const g = Math.floor(50 + frac * 100);
           ctx.beginPath();
           ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-          ctx.strokeStyle = `rgba(255,${80 + seg * 4},0,${alpha})`;
+          ctx.strokeStyle = `rgba(255,${g},0,${alpha})`;
           ctx.lineWidth = width;
+          ctx.lineCap = 'round';
           ctx.stroke();
+          // Outer glow streak
+          if (seg < trailSegments * 0.7) {
+            ctx.beginPath();
+            ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+            ctx.strokeStyle = `rgba(255,120,0,${frac * 0.2})`;
+            ctx.lineWidth = width * 3;
+            ctx.stroke();
+          }
         }
 
-        // Hot glow around meteorite
         if (fp < 1) {
           const intensity = Math.min(fp * 3, 1);
-          const glowR = 8 + intensity * 25;
-          const glow = ctx.createRadialGradient(curX, curY, 0, curX, curY, glowR);
-          glow.addColorStop(0, `rgba(255,220,100,${0.95 * intensity})`);
-          glow.addColorStop(0.3, `rgba(255,120,0,${0.6 * intensity})`);
-          glow.addColorStop(1, 'rgba(255,40,0,0)');
-          ctx.fillStyle = glow;
-          ctx.fillRect(curX - glowR, curY - glowR, glowR * 2, glowR * 2);
 
-          // Rock body
-          const rockR = 5 + Math.min(params.mass / 8000, 6);
+          // Outer dim halo
+          const haloR = 30 + intensity * 50;
+          const halo = ctx.createRadialGradient(curX, curY, 0, curX, curY, haloR);
+          halo.addColorStop(0, `rgba(255,160,30,${0.12 * intensity})`);
+          halo.addColorStop(1, 'rgba(255,60,0,0)');
+          ctx.fillStyle = halo;
+          ctx.beginPath(); ctx.arc(curX, curY, haloR, 0, Math.PI * 2); ctx.fill();
+
+          // Main fireball glow
+          const glowR = 10 + intensity * 30;
+          const glow = ctx.createRadialGradient(curX, curY, 0, curX, curY, glowR);
+          glow.addColorStop(0, `rgba(255,240,180,${0.98 * intensity})`);
+          glow.addColorStop(0.2, `rgba(255,180,40,${0.9 * intensity})`);
+          glow.addColorStop(0.6, `rgba(255,80,0,${0.55 * intensity})`);
+          glow.addColorStop(1, 'rgba(200,30,0,0)');
+          ctx.fillStyle = glow;
+          ctx.beginPath(); ctx.arc(curX, curY, glowR, 0, Math.PI * 2); ctx.fill();
+
+          // Ablation sparks flying off
+          if (fp > 0.15) {
+            for (let sp = 0; sp < 5; sp++) {
+              const sparkAngle = seededRand(Math.floor(fp * 200) + sp) * Math.PI * 2;
+              const sparkDist = 5 + seededRand(Math.floor(fp * 300) + sp + 10) * (8 + intensity * 12);
+              const sx = curX + Math.cos(sparkAngle) * sparkDist;
+              const sy = curY + Math.sin(sparkAngle) * sparkDist;
+              const sparkA = seededRand(Math.floor(fp * 400) + sp + 20) * 0.8 * intensity;
+              ctx.fillStyle = `rgba(255,220,80,${sparkA})`;
+              ctx.beginPath(); ctx.arc(sx, sy, 1 + seededRand(sp * 7) * 1.5, 0, Math.PI * 2); ctx.fill();
+            }
+          }
+
+          // Rock body with surface detail
+          const rockR = 5 + Math.min(params.mass / 8000, 7);
+          // Shadow side
           ctx.beginPath();
           ctx.arc(curX, curY, rockR, 0, Math.PI * 2);
-          const rockGrad = ctx.createRadialGradient(curX - 2, curY - 2, 0, curX, curY, rockR);
-          rockGrad.addColorStop(0, '#FFA050');
-          rockGrad.addColorStop(0.5, '#8B5A2B');
-          rockGrad.addColorStop(1, '#3A2010');
+          const rockGrad = ctx.createRadialGradient(curX - rockR * 0.4, curY - rockR * 0.4, 0, curX, curY, rockR);
+          rockGrad.addColorStop(0, '#FFD080');
+          rockGrad.addColorStop(0.35, '#E07830');
+          rockGrad.addColorStop(0.7, '#8B4A1B');
+          rockGrad.addColorStop(1, '#1A0A04');
           ctx.fillStyle = rockGrad;
           ctx.fill();
+          // Bright ablation rim
+          ctx.strokeStyle = `rgba(255,200,80,${0.6 * intensity})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
 
           // Altitude label
           const kmAlt = Math.round((1 - fp) * 110);
-          ctx.fillStyle = 'rgba(255,210,100,0.85)';
+          ctx.fillStyle = 'rgba(200,220,255,0.75)';
           ctx.font = '10px Golos Text';
-          ctx.fillText(`▲ ${kmAlt} км`, curX + 10, curY - 8);
+          ctx.fillText(`▲ ${kmAlt} км`, curX + rockR + 4, curY - 6);
+
+          // Speed label
+          const curSpeed = params.velocity * (1 - fp * 0.3);
+          ctx.fillStyle = 'rgba(255,180,80,0.6)';
+          ctx.font = '9px Golos Text';
+          ctx.fillText(`${curSpeed.toFixed(0)} км/с`, curX + rockR + 4, curY + 8);
+        }
+
+        // === SPAWN SMOKE TRAIL PARTICLES ===
+        if (fp > 0.1 && fp < 0.99 && phase === 'flight') {
+          spawnSmoke(curX, curY, fp);
         }
       }
+
+      // === UPDATE & DRAW SMOKE PARTICLES ===
+      smokeRef.current = smokeRef.current.filter(s => s.life > 0);
+      smokeRef.current.forEach(s => {
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.vy += 5 * dt; // slow rise
+        s.life -= dt * 0.9;
+        s.r += dt * 8;
+        const a = Math.max(0, s.life * 0.18);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fillStyle = `${s.color}${a})`;
+        ctx.fill();
+      });
 
       // === IMPACT PHASE ===
       if (phase === 'impact' || phase === 'done') {
@@ -409,117 +590,296 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
         const iy = endY;
 
         if (!res.survived) {
-          // Airblast
-          const expR = Math.min(ip * 1.5, 1) * 70;
-          const exp2R = Math.min(ip * 1.2, 1) * 120;
-          const exp2 = ctx.createRadialGradient(ix, iy, 0, ix, iy, exp2R);
-          exp2.addColorStop(0, `rgba(255,255,180,${0.3 * (1 - ip)})`);
-          exp2.addColorStop(0.5, `rgba(255,120,0,${0.4 * (1 - ip * 0.7)})`);
-          exp2.addColorStop(1, 'rgba(200,50,0,0)');
-          ctx.fillStyle = exp2;
-          ctx.fillRect(ix - exp2R, iy - exp2R, exp2R * 2, exp2R * 2);
+          // ── AIR BURST ──
 
-          const exp = ctx.createRadialGradient(ix, iy, 0, ix, iy, expR);
-          exp.addColorStop(0, `rgba(255,255,220,${Math.max(0, 1 - ip * 1.5)})`);
-          exp.addColorStop(0.3, `rgba(255,180,0,${0.9 * (1 - ip)})`);
-          exp.addColorStop(1, 'rgba(255,50,0,0)');
-          ctx.fillStyle = exp;
-          ctx.fillRect(ix - expR, iy - expR, expR * 2, expR * 2);
-
-          if (ip > 0.3) {
-            ctx.fillStyle = `rgba(255,200,80,${Math.max(0, 1.5 - ip)})`;
-            ctx.font = 'bold 15px Oswald';
-            ctx.textAlign = 'center';
-            ctx.fillText('ВЗРЫВ В АТМОСФЕРЕ', ix, iy - 55);
-            ctx.font = '11px Golos Text';
-            ctx.fillStyle = `rgba(255,160,60,${Math.max(0, 1.3 - ip)})`;
-            ctx.fillText(`Высота: ${res.burnHeight} км · ${res.energyReleased}`, ix, iy - 38);
-            ctx.textAlign = 'left';
-          }
-        } else {
-          // Ground impact — meteorite buries into ground
-          const embedDepth = Math.min(ip * 2, 1) * 18;
-          const craterR = Math.min(ip * 1.5, 1) * (10 + Math.min(params.mass / 2000, 20));
-
-          // Shockwave ring
-          if (ip < 0.8) {
-            const waveR = ip * 180;
-            ctx.beginPath(); ctx.arc(ix, GROUND_Y, waveR, Math.PI, 0);
-            ctx.strokeStyle = `rgba(255,140,0,${Math.max(0, 0.7 - ip)})`;
+          // Outer shockwave ring
+          if (ip < 0.7) {
+            const ringR = Math.min(ip / 0.7, 1) * 160;
+            ctx.beginPath(); ctx.arc(ix, iy, ringR, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,220,100,${Math.max(0, 0.5 - ip * 0.7)})`;
             ctx.lineWidth = 2;
             ctx.stroke();
-          }
 
-          // Ejecta spray upward
-          if (ip > 0.05 && ip < 0.7) {
-            for (let e = 0; e < 16; e++) {
-              const eAngle = (-Math.PI * 0.9) + (e / 15) * Math.PI * 0.9;
-              const eDist = (30 + e * 5) * Math.min(ip * 3, 1);
-              const ex = ix + Math.cos(eAngle) * eDist;
-              const ey = GROUND_Y + Math.sin(eAngle) * eDist * 0.8;
-              ctx.beginPath(); ctx.arc(ex, ey, 2, 0, Math.PI * 2);
-              ctx.fillStyle = `rgba(${120 + e * 5},${80 + e * 3},30,${0.8 - ip})`;
-              ctx.fill();
+            // Second ring
+            if (ip > 0.05) {
+              const ring2R = ringR * 0.65;
+              ctx.beginPath(); ctx.arc(ix, iy, ring2R, 0, Math.PI * 2);
+              ctx.strokeStyle = `rgba(255,140,0,${Math.max(0, 0.4 - ip * 0.6)})`;
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
             }
           }
 
-          // Dust cloud
-          if (ip > 0.1) {
-            const dustR = Math.min(ip * 2, 1) * 50;
-            const dust = ctx.createRadialGradient(ix, GROUND_Y, 0, ix, GROUND_Y - 10, dustR);
-            dust.addColorStop(0, `rgba(180,140,80,${0.5 * Math.min(ip * 2, 1) * Math.max(0, 1.5 - ip)})`);
-            dust.addColorStop(1, 'rgba(140,100,60,0)');
-            ctx.fillStyle = dust;
-            ctx.fillRect(ix - dustR, GROUND_Y - dustR, dustR * 2, dustR);
+          // Expanding explosion ball — multiple layers
+          const expMaxR = 130;
+          const expR = Math.min(ip * 1.6, 1) * expMaxR;
+
+          // Outer cloud
+          const exp3 = ctx.createRadialGradient(ix, iy, 0, ix, iy, expR * 1.5);
+          exp3.addColorStop(0, `rgba(255,180,50,${0.15 * Math.max(0, 1 - ip)})`);
+          exp3.addColorStop(0.6, `rgba(200,80,0,${0.2 * Math.max(0, 1 - ip * 0.8)})`);
+          exp3.addColorStop(1, 'rgba(100,30,0,0)');
+          ctx.fillStyle = exp3;
+          ctx.fillRect(ix - expR * 1.5, iy - expR * 1.5, expR * 3, expR * 3);
+
+          // Core fireball
+          const exp = ctx.createRadialGradient(ix, iy, 0, ix, iy, expR);
+          exp.addColorStop(0, `rgba(255,255,220,${Math.max(0, 1 - ip * 1.2)})`);
+          exp.addColorStop(0.25, `rgba(255,220,80,${Math.max(0, 0.9 - ip)})`);
+          exp.addColorStop(0.6, `rgba(255,100,0,${Math.max(0, 0.7 - ip * 0.8)})`);
+          exp.addColorStop(1, 'rgba(180,40,0,0)');
+          ctx.fillStyle = exp;
+          ctx.fillRect(ix - expR, iy - expR, expR * 2, expR * 2);
+
+          // Mushroom column
+          if (ip > 0.2) {
+            const stemH = Math.min((ip - 0.2) / 0.8, 1) * 80;
+            const stemW = 12 * Math.max(0, 1 - ip * 0.5);
+            const stemAlpha = Math.max(0, 0.4 - (ip - 0.2) * 0.3);
+            const stemGrad = ctx.createLinearGradient(ix, iy, ix, iy - stemH);
+            stemGrad.addColorStop(0, `rgba(220,160,60,${stemAlpha})`);
+            stemGrad.addColorStop(1, `rgba(160,100,40,0)`);
+            ctx.fillStyle = stemGrad;
+            ctx.beginPath();
+            ctx.ellipse(ix, iy - stemH / 2, stemW, stemH / 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cap
+            if (ip > 0.35) {
+              const capProg = Math.min((ip - 0.35) / 0.65, 1);
+              const capR = 20 + capProg * 30;
+              const capAlpha = Math.max(0, 0.5 - capProg * 0.4);
+              const capGrad = ctx.createRadialGradient(ix, iy - stemH, 0, ix, iy - stemH, capR);
+              capGrad.addColorStop(0, `rgba(240,180,80,${capAlpha})`);
+              capGrad.addColorStop(0.7, `rgba(180,100,40,${capAlpha * 0.6})`);
+              capGrad.addColorStop(1, 'rgba(120,60,20,0)');
+              ctx.fillStyle = capGrad;
+              ctx.beginPath(); ctx.arc(ix, iy - stemH, capR, 0, Math.PI * 2); ctx.fill();
+            }
           }
 
-          // Crater
+          // Debris particles flying outward
+          if (ip > 0.05 && ip < 0.6) {
+            for (let d = 0; d < 14; d++) {
+              const dAngle = seededRand(d * 31 + Math.floor(ip * 10)) * Math.PI * 2;
+              const dDist = (seededRand(d * 17 + 5) * 80) * Math.min(ip * 3, 1);
+              const dx2 = ix + Math.cos(dAngle) * dDist;
+              const dy2 = iy + Math.sin(dAngle) * dDist;
+              const da = Math.max(0, 0.7 - ip);
+              ctx.fillStyle = `rgba(255,${100 + d * 8},0,${da})`;
+              ctx.beginPath(); ctx.arc(dx2, dy2, 1.5 + seededRand(d * 23) * 2, 0, Math.PI * 2); ctx.fill();
+            }
+          }
+
+          if (ip > 0.3) {
+            ctx.fillStyle = `rgba(255,210,80,${Math.max(0, 1.5 - ip)})`;
+            ctx.font = 'bold 15px Oswald';
+            ctx.textAlign = 'center';
+            ctx.fillText('ВЗРЫВ В АТМОСФЕРЕ', ix, iy - 65);
+            ctx.font = '11px Golos Text';
+            ctx.fillStyle = `rgba(255,160,60,${Math.max(0, 1.3 - ip)})`;
+            ctx.fillText(`Высота: ${res.burnHeight} км · ${res.energyReleased}`, ix, iy - 48);
+            ctx.textAlign = 'left';
+          }
+
+        } else {
+          // ── GROUND IMPACT ──
+
+          const embedDepth = Math.min(ip * 2, 1) * 18;
+          const craterR = Math.min(ip * 1.8, 1) * (12 + Math.min(params.mass / 1800, 24));
+
+          // Light flash at moment of impact
+          if (ip < 0.15) {
+            const flashAlpha = Math.sin((ip / 0.15) * Math.PI) * 0.7;
+            const flashR = ip * 200;
+            const flash = ctx.createRadialGradient(ix, GROUND_Y, 0, ix, GROUND_Y, flashR);
+            flash.addColorStop(0, `rgba(255,255,220,${flashAlpha})`);
+            flash.addColorStop(0.3, `rgba(255,200,80,${flashAlpha * 0.6})`);
+            flash.addColorStop(1, 'rgba(255,100,0,0)');
+            ctx.fillStyle = flash;
+            ctx.beginPath(); ctx.arc(ix, GROUND_Y, flashR, 0, Math.PI * 2); ctx.fill();
+          }
+
+          // Shockwave rings (multiple)
+          if (ip < 0.9) {
+            for (let wave = 0; wave < 3; wave++) {
+              const waveDelay = wave * 0.08;
+              if (ip > waveDelay) {
+                const waveProgress = Math.min((ip - waveDelay) / 0.9, 1);
+                const waveR = waveProgress * (180 + wave * 40);
+                const waveAlpha = Math.max(0, 0.55 - waveProgress * 0.65) / (wave + 1);
+                ctx.beginPath();
+                ctx.arc(ix, GROUND_Y, waveR, Math.PI, 0);
+                ctx.strokeStyle = `rgba(255,${140 - wave * 20},0,${waveAlpha})`;
+                ctx.lineWidth = 2 - wave * 0.4;
+                ctx.stroke();
+              }
+            }
+          }
+
+          // Ground crack lines
+          if (ip > 0.08) {
+            const crackAlpha = Math.min((ip - 0.08) / 0.3, 1) * 0.6;
+            for (let cr = 0; cr < 8; cr++) {
+              const crAngle = (cr / 8) * Math.PI; // semi-circle above ground
+              const crLen = (20 + seededRand(cr * 13) * 50) * Math.min(ip * 2, 1);
+              ctx.beginPath();
+              ctx.moveTo(ix, GROUND_Y);
+              const cx2 = ix + Math.cos(crAngle) * crLen;
+              const cy2 = GROUND_Y + Math.abs(Math.sin(crAngle)) * crLen * 0.3;
+              const midX = ix + Math.cos(crAngle) * crLen * 0.5 + (seededRand(cr * 7) - 0.5) * 12;
+              const midY = GROUND_Y + (seededRand(cr * 9) - 0.5) * 8;
+              ctx.quadraticCurveTo(midX, midY, cx2, cy2);
+              ctx.strokeStyle = `rgba(60,30,10,${crackAlpha})`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+          }
+
+          // Spawn ejecta & debris on early impact
+          if (ip > 0.01 && ip < 0.4) {
+            spawnEjecta(ix, ip);
+          }
+          if (ip > 0.01 && debrisRef.current.length === 0) {
+            spawnDebris(ix);
+          }
+
+          // Update & draw ejecta particles
+          particlesRef.current = particlesRef.current.filter(ep => ep.life > 0);
+          particlesRef.current.forEach(ep => {
+            ep.x += ep.vx * dt;
+            ep.y += ep.vy * dt;
+            ep.vy += 200 * dt; // gravity
+            ep.life -= dt * 1.5;
+            if (ep.y > GROUND_Y + ep.r) {
+              ep.y = GROUND_Y + ep.r;
+              ep.vy *= -0.25;
+              ep.vx *= 0.7;
+            }
+            const a = Math.max(0, ep.life * 0.9);
+            ctx.fillStyle = ep.color.replace(')', `,${a})`).replace('rgb', 'rgba');
+            ctx.beginPath(); ctx.arc(ep.x, ep.y, ep.r, 0, Math.PI * 2); ctx.fill();
+          });
+
+          // Update & draw debris chunks
+          debrisRef.current = debrisRef.current.filter(d => d.life > 0);
+          debrisRef.current.forEach(d => {
+            d.x += d.vx * dt;
+            d.y += d.vy * dt;
+            d.vy += 280 * dt;
+            d.life -= dt * 0.7;
+            if (d.y > GROUND_Y) {
+              d.y = GROUND_Y;
+              d.vy *= -0.2;
+              d.vx *= 0.6;
+            }
+            const a = Math.max(0, d.life * 0.85);
+            ctx.globalAlpha = a;
+            ctx.fillStyle = d.color;
+            ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1;
+          });
+
+          // Dust / smoke cloud expanding upward
+          if (ip > 0.08) {
+            const dustProg = Math.min((ip - 0.08) / 0.92, 1);
+            const dustR = dustProg * (50 + Math.min(params.mass / 5000, 40));
+            const dustH = dustR * 1.6;
+            const dustAlpha = dustProg * 0.45 * Math.max(0, 1.6 - dustProg);
+            const dust = ctx.createRadialGradient(ix, GROUND_Y - dustH * 0.4, 0, ix, GROUND_Y - dustH * 0.4, dustR * 1.2);
+            dust.addColorStop(0, `rgba(200,160,100,${dustAlpha})`);
+            dust.addColorStop(0.5, `rgba(160,120,70,${dustAlpha * 0.6})`);
+            dust.addColorStop(1, 'rgba(120,90,50,0)');
+            ctx.fillStyle = dust;
+            ctx.save();
+            ctx.scale(1, 0.65);
+            ctx.beginPath();
+            ctx.arc(ix, (GROUND_Y - dustH * 0.4) / 0.65, dustR * 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+
+          // Crater (grows over time)
           ctx.beginPath();
-          ctx.ellipse(ix, GROUND_Y, craterR, craterR * 0.45, 0, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(30,15,5,0.9)';
+          ctx.ellipse(ix, GROUND_Y, craterR, craterR * 0.42, 0, 0, Math.PI * 2);
+          const craterGrad = ctx.createRadialGradient(ix, GROUND_Y, 0, ix, GROUND_Y, craterR);
+          craterGrad.addColorStop(0, 'rgba(15,6,2,1)');
+          craterGrad.addColorStop(0.6, 'rgba(30,12,4,0.95)');
+          craterGrad.addColorStop(1, 'rgba(50,25,8,0.8)');
+          ctx.fillStyle = craterGrad;
           ctx.fill();
-          ctx.strokeStyle = `rgba(180,90,20,${0.7})`;
+
+          // Crater rim glow
+          ctx.beginPath();
+          ctx.ellipse(ix, GROUND_Y, craterR, craterR * 0.42, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(200,100,20,${0.7 * Math.min(ip, 1)})`;
           ctx.lineWidth = 2;
           ctx.stroke();
 
-          // Crater inner shadow
+          // Crater rim raised edge
           ctx.beginPath();
-          ctx.ellipse(ix, GROUND_Y + 1, craterR * 0.7, craterR * 0.3, 0, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(15,8,2,0.7)';
+          ctx.ellipse(ix, GROUND_Y - 2, craterR * 1.12, craterR * 0.5, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(140,90,40,${0.4 * Math.min(ip, 1)})`;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+
+          // Inner shadow
+          ctx.beginPath();
+          ctx.ellipse(ix, GROUND_Y + 2, craterR * 0.65, craterR * 0.27, 0, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(8,3,1,0.85)';
           ctx.fill();
+
+          // Molten glow at crater base
+          if (ip > 0.2) {
+            const moltR = craterR * 0.35 * Math.min((ip - 0.2) / 0.8, 1);
+            const molt = ctx.createRadialGradient(ix, GROUND_Y, 0, ix, GROUND_Y, moltR);
+            molt.addColorStop(0, `rgba(255,200,50,${0.7 * Math.min((ip - 0.2) * 2, 1)})`);
+            molt.addColorStop(0.5, `rgba(255,100,0,${0.4 * Math.min((ip - 0.2) * 2, 1)})`);
+            molt.addColorStop(1, 'rgba(180,40,0,0)');
+            ctx.fillStyle = molt;
+            ctx.beginPath();
+            ctx.ellipse(ix, GROUND_Y, moltR, moltR * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
 
           // Meteorite fragment embedded
           if (ip > 0.4) {
             const fragY = GROUND_Y + Math.min((ip - 0.4) * 2, 1) * embedDepth;
             const fragR = 4 + Math.min(params.mass / 6000, 7);
             const fGrad = ctx.createRadialGradient(ix - 2, fragY - 2, 0, ix, fragY, fragR);
-            fGrad.addColorStop(0, '#8B7355');
+            fGrad.addColorStop(0, '#C09060');
+            fGrad.addColorStop(0.5, '#8B5A2B');
             fGrad.addColorStop(1, '#2A1A08');
             ctx.beginPath(); ctx.arc(ix, fragY, fragR, 0, Math.PI * 2);
             ctx.fillStyle = fGrad; ctx.fill();
+            // Hot rim on fragment
+            ctx.strokeStyle = `rgba(255,160,40,${Math.max(0, 0.8 - ip)})`;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
           }
 
           // Blast radius dashed circle
           if (ip > 0.5) {
-            const blastPx = Math.min((ip - 0.5) * 2, 1) * res.blastRadius * 3.5;
+            const blastProg = Math.min((ip - 0.5) * 2, 1);
+            const blastPx = blastProg * res.blastRadius * 3.5;
             ctx.beginPath(); ctx.arc(ix, GROUND_Y, blastPx, 0, Math.PI * 2);
             ctx.setLineDash([5, 5]);
-            ctx.strokeStyle = `rgba(255,100,0,${0.4 * Math.min((ip - 0.5) * 2, 1)})`;
+            ctx.strokeStyle = `rgba(255,100,0,${0.35 * blastProg})`;
             ctx.lineWidth = 1.5;
             ctx.stroke();
             ctx.setLineDash([]);
 
             if (ip > 0.75) {
-              ctx.fillStyle = 'rgba(255,180,80,0.9)';
+              ctx.fillStyle = 'rgba(255,180,80,0.92)';
               ctx.font = 'bold 11px Oswald';
               ctx.textAlign = 'center';
-              ctx.fillText(`💥 ${res.energyReleased}`, ix, GROUND_Y - 30);
+              ctx.fillText(`💥 ${res.energyReleased}`, ix, GROUND_Y - 38);
               ctx.font = '10px Golos Text';
-              ctx.fillStyle = 'rgba(200,200,255,0.8)';
-              ctx.fillText(`Зона поражения: ${res.blastRadius} км`, ix, GROUND_Y - 16);
+              ctx.fillStyle = 'rgba(200,220,255,0.8)';
+              ctx.fillText(`Зона поражения: ${res.blastRadius} км`, ix, GROUND_Y - 24);
               if (res.craterDiameter > 0) {
                 ctx.fillStyle = 'rgba(255,140,60,0.8)';
-                ctx.fillText(`Кратер: ⌀ ${res.craterDiameter} км`, ix, GROUND_Y - 2);
+                ctx.fillText(`Кратер: ⌀ ${res.craterDiameter} км`, ix, GROUND_Y - 10);
               }
               ctx.textAlign = 'left';
             }
@@ -534,18 +894,17 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
       lastTs = ts;
 
       if (phaseRef.current === 'flight') {
-        progressRef.current += dt * 0.55;
+        progressRef.current += dt * 0.5;
         if (progressRef.current >= 1) {
           progressRef.current = 1;
           phaseRef.current = 'impact';
           impactProgressRef.current = 0;
         }
       } else if (phaseRef.current === 'impact') {
-        impactProgressRef.current += dt * 0.7;
+        impactProgressRef.current += dt * 0.65;
         if (impactProgressRef.current >= 1) {
           impactProgressRef.current = 1;
           phaseRef.current = 'done';
-          // Draw impact map
           drawImpactMap(res, 1);
           setRunning(false);
           setImpactDone(true);
@@ -554,7 +913,7 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
         drawImpactMap(res, impactProgressRef.current);
       }
 
-      drawScene();
+      drawScene(dt);
       animRef.current = requestAnimationFrame(animate);
     };
 
@@ -717,7 +1076,7 @@ export default function AtmosphereSimulator({ onAchievement }: { onAchievement: 
             {running ? 'Симуляция...' : 'Запустить'}
           </button>
         </div>
-        <canvas ref={canvasRef} width={760} height={340} className="w-full" style={{ background: '#020810' }} />
+        <canvas ref={canvasRef} width={760} height={340} className="w-full" style={{ background: '#010608' }} />
       </div>
 
       {/* Impact map canvas */}
