@@ -61,6 +61,9 @@ export default function Index() {
       setJourneyStage(s => s + 1);
     } else {
       unlockAchievement('time_traveler');
+      setTimeout(() => {
+        setActiveTab('catalog');
+      }, 500);
     }
   };
 
