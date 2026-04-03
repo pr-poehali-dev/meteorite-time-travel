@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Icon from '@/components/ui/icon';
 import StarField from '@/components/StarField';
 import AtmosphereSimulator from '@/components/AtmosphereSimulator';
@@ -20,6 +20,25 @@ export default function Index() {
   const [points, setPoints] = useState(0);
   const [toastAch, setToastAch] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<string>('all');
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = useCallback(async () => {
+    const url = window.location.href;
+    const title = 'Метеоритный хроноскоп — путешествие во времени';
+    const text = 'Изучай реальные метеориты и симулируй их падение на Землю!';
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text, url });
+      } catch {
+        // user cancelled
+      }
+    } else {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, []);
 
   const unlockAchievement = (id: string) => {
     if (unlockedAchievements.includes(id)) return;
@@ -110,7 +129,7 @@ export default function Index() {
               <p className="text-xs text-muted-foreground">Путешествие во времени через историю метеоритов</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <div className="glass-card rounded-lg px-3 py-1.5 flex items-center gap-2">
               <span className="text-cosmos-orange">⭐</span>
               <span className="font-oswald text-foreground">{points}</span>
@@ -120,6 +139,20 @@ export default function Index() {
               <span>🏆</span>
               <span className="text-sm text-muted-foreground">{unlockedAchievements.length}/{ACHIEVEMENTS.length}</span>
             </div>
+            <button
+              onClick={handleShare}
+              className="glass-card rounded-lg px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 transition-all group"
+              title="Поделиться сайтом"
+            >
+              <Icon
+                name={copied ? 'Check' : 'Share2'}
+                size={15}
+                className={copied ? 'text-green-400' : 'text-muted-foreground group-hover:text-cosmos-cyan transition-colors'}
+              />
+              <span className={`text-sm transition-colors ${copied ? 'text-green-400' : 'text-muted-foreground group-hover:text-cosmos-cyan'}`}>
+                {copied ? 'Скопировано!' : 'Поделиться'}
+              </span>
+            </button>
           </div>
         </div>
       </header>
