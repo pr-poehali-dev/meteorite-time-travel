@@ -4,23 +4,21 @@ import Icon from '@/components/ui/icon';
 import StarField from '@/components/StarField';
 import AtmosphereSimulator from '@/components/AtmosphereSimulator';
 import { METEORITES, ACHIEVEMENTS, type Meteorite } from '@/data/meteorites';
-import CatalogTab from '@/components/tabs/CatalogTab';
 import JourneyTab from '@/components/tabs/JourneyTab';
 import StatsTab from '@/components/tabs/StatsTab';
 import LearnTab from '@/components/tabs/LearnTab';
 import AchievementsTab from '@/components/tabs/AchievementsTab';
 
-type Tab = 'catalog' | 'journey' | 'simulator' | 'stats' | 'learn' | 'achievements';
+type Tab = 'journey' | 'simulator' | 'stats' | 'learn' | 'achievements';
 
 export default function Index() {
-  const [activeTab, setActiveTab] = useState<Tab>('catalog');
+  const [activeTab, setActiveTab] = useState<Tab>('journey');
   const [selectedMeteorite, setSelectedMeteorite] = useState<Meteorite | null>(null);
   const [journeyStage, setJourneyStage] = useState(0);
   const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>([]);
   const [viewedMeteorites, setViewedMeteorites] = useState<string[]>([]);
   const [points, setPoints] = useState(0);
   const [toastAch, setToastAch] = useState<string | null>(null);
-  const [filterType, setFilterType] = useState<string>('all');
   const [copied, setCopied] = useState(false);
 
   const handleShare = useCallback(async () => {
@@ -83,13 +81,13 @@ export default function Index() {
     } else {
       unlockAchievement('time_traveler');
       setTimeout(() => {
-        setActiveTab('catalog');
+        setSelectedMeteorite(null);
+        setJourneyStage(0);
       }, 500);
     }
   };
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'catalog', label: 'Каталог', icon: 'BookOpen' },
     { id: 'journey', label: 'Хроноскоп', icon: 'Clock' },
     { id: 'simulator', label: 'Симуляция', icon: 'Flame' },
     { id: 'stats', label: 'Статистика', icon: 'BarChart3' },
@@ -183,15 +181,6 @@ export default function Index() {
       {/* Content */}
       <main className="relative z-10 max-w-6xl mx-auto px-4 py-8">
 
-        {activeTab === 'catalog' && (
-          <CatalogTab
-            filterType={filterType}
-            setFilterType={setFilterType}
-            viewedMeteorites={viewedMeteorites}
-            selectMeteorite={selectMeteorite}
-          />
-        )}
-
         {activeTab === 'journey' && (
           <JourneyTab
             selectedMeteorite={selectedMeteorite}
@@ -200,6 +189,8 @@ export default function Index() {
             setSelectedMeteorite={setSelectedMeteorite}
             setActiveTab={setActiveTab}
             advanceJourney={advanceJourney}
+            viewedMeteorites={viewedMeteorites}
+            selectMeteorite={selectMeteorite}
           />
         )}
 
@@ -223,6 +214,7 @@ export default function Index() {
             points={points}
           />
         )}
+
       </main>
 
       {/* Support Footer */}
