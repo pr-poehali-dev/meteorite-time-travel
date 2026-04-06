@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import KnopaBot from '@/components/KnopaBot';
 import Icon from '@/components/ui/icon';
 import StarField from '@/components/StarField';
 import AtmosphereSimulator from '@/components/AtmosphereSimulator';
@@ -245,6 +246,8 @@ export default function Index() {
           </a>
         </div>
       </footer>
+
+      <KnopaBot onNavigate={(tab) => setActiveTab(tab as Tab)} />
     </div>
   );
 }
