@@ -235,6 +235,12 @@ export default function JourneyTab({
                       ))}
                     </ul>
                   </div>
+                  <div className="mt-4 bg-gradient-to-r from-cosmos-purple/20 to-cosmos-cyan/10 border border-cosmos-purple/30 rounded-xl p-4">
+                    <div className="text-cosmos-purple text-xs font-bold mb-2 flex items-center gap-1.5">
+                      <span>✨</span> ИНТЕРЕСНЫЙ ФАКТ
+                    </div>
+                    <p className="text-sm text-foreground leading-relaxed">{selectedMeteorite.funFact}</p>
+                  </div>
                 </div>
               )}
             </div>
