@@ -192,22 +192,12 @@ export default function JourneyTab({
             </div>
 
             <div className="p-6 space-y-4">
-              <p className="text-foreground leading-relaxed">{stageData.description}</p>
+              <p className="text-foreground leading-relaxed">{selectedMeteorite.stages[journeyStage].description}</p>
 
               <div className="bg-black/30 border border-cosmos-cyan/20 rounded-xl p-4">
                 <div className="text-cosmos-cyan text-xs font-bold mb-1">⚛️ ФИЗИКА</div>
-                <div className="font-mono text-sm text-foreground">{stageData.physics}</div>
-                <div className="text-muted-foreground text-xs mt-1">{stageData.detail}</div>
-              </div>
-
-              <div className="bg-cosmos-orange/10 border border-cosmos-orange/20 rounded-xl p-4">
-                <div className="text-cosmos-orange text-xs font-bold mb-1">☄️ ДЛЯ {selectedMeteorite.name.toUpperCase()}</div>
-                <div className="text-sm text-foreground">
-                  {journeyStage === 0 && `Формировался ${selectedMeteorite.age} назад в протопланетном диске молодого Солнца`}
-                  {journeyStage === 1 && `После отрыва от родительского тела путешествовал миллионы лет по орбите`}
-                  {journeyStage === 2 && `Вошёл в атмосферу Земли со скоростью от 11 до 72 км/с, раскалившись до 2000°C`}
-                  {journeyStage === 3 && `Найден в ${selectedMeteorite.country} в ${selectedMeteorite.found} году. Масса: ${selectedMeteorite.mass}`}
-                </div>
+                <div className="font-mono text-sm text-foreground">{selectedMeteorite.stages[journeyStage].physics}</div>
+                <div className="text-muted-foreground text-xs mt-1">{selectedMeteorite.stages[journeyStage].detail}</div>
               </div>
 
               {journeyStage === 3 && (
