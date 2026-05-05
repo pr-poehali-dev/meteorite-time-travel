@@ -8,8 +8,9 @@ import JourneyTab from '@/components/tabs/JourneyTab';
 import StatsTab from '@/components/tabs/StatsTab';
 import LearnTab from '@/components/tabs/LearnTab';
 import AchievementsTab from '@/components/tabs/AchievementsTab';
+import ReviewsTab from '@/components/tabs/ReviewsTab';
 
-type Tab = 'journey' | 'simulator' | 'stats' | 'learn' | 'achievements';
+type Tab = 'journey' | 'simulator' | 'stats' | 'learn' | 'achievements' | 'reviews';
 
 export default function Index() {
   const [activeTab, setActiveTab] = useState<Tab>('journey');
@@ -93,6 +94,7 @@ export default function Index() {
     { id: 'stats', label: 'Статистика', icon: 'BarChart3' },
     { id: 'learn', label: 'Обучение', icon: 'GraduationCap' },
     { id: 'achievements', label: 'Достижения', icon: 'Trophy' },
+    { id: 'reviews', label: 'Отзывы', icon: 'Star' },
   ];
 
   return (
@@ -207,6 +209,8 @@ export default function Index() {
         {activeTab === 'stats' && <StatsTab />}
 
         {activeTab === 'learn' && <LearnTab />}
+
+        {activeTab === 'reviews' && <ReviewsTab />}
 
         {activeTab === 'achievements' && (
           <AchievementsTab
